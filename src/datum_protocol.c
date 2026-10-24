@@ -173,6 +173,8 @@ static bool datum_requested_resume = false;
 atomic_bool datum_framing_v2 = false;
 static bool datum_connection_configured = false;
 static atomic_bool datum_pool_abw_enabled = true;
+/* Set only by a pool configure that carries SRU\x01. Absent means no. */
+static atomic_bool datum_pool_scaled_reuse_ok = false;
 
 extern DATUM_QUEUE pow_queue;
 
@@ -1485,13 +1487,37 @@ bool datum_protocol_coinbaser_have_saved(void) {
 
 /* Exact match: same pool, same session, same tip, same value. The saved
  * split is the pool's own answer for this job, coinbaser id included. */
+static bool datum_coinbaser_exact_locked(const T_DATUM_STRATUM_JOB *s) {
+	return s && s->coinbase_value &&
+		datum_last_good_matches_pool_locked() &&
+		datum_last_good_session == atomic_load(&datum_session_generation) &&
+		datum_last_good_cb_count >= 2 &&
+		datum_last_good_cb_value == s->coinbase_value &&
+		memcmp(datum_last_good_prevhash, s->prevhash_bin, 32) == 0;
+}
+
+bool datum_protocol_coinbaser_exact_ready(const void *job) {
+	const T_DATUM_STRATUM_JOB *s = job;
+	bool ready;
+	if (!s) return false;
+	pthread_mutex_lock(&datum_last_good_cb_mutex);
+	ready = datum_coinbaser_exact_locked(s);
+	pthread_mutex_unlock(&datum_last_good_cb_mutex);
+	return ready;
+}
+
+bool datum_protocol_scaled_reuse_ok(void) {
+	return atomic_load(&datum_pool_scaled_reuse_ok);
+}
+
+void datum_protocol_test_scaled_reuse(bool ok) {
+	atomic_store(&datum_pool_scaled_reuse_ok, ok);
+}
+
 static int datum_protocol_coinbaser_try_exact(T_DATUM_STRATUM_JOB *s) {
 	int n = 0;
 	pthread_mutex_lock(&datum_last_good_cb_mutex);
-	if (datum_last_good_matches_pool_locked() &&
-	    datum_last_good_session == atomic_load(&datum_session_generation) &&
-	    datum_last_good_cb_value == s->coinbase_value &&
-	    memcmp(datum_last_good_prevhash, s->prevhash_bin, 32) == 0) {
+	if (datum_coinbaser_exact_locked(s)) {
 		memcpy(s->available_coinbase_outputs, datum_last_good_cb_outs,
 		       sizeof(T_DATUM_TXN_OUTPUT) * (size_t)datum_last_good_cb_count);
 		s->available_coinbase_outputs_count = datum_last_good_cb_count;
@@ -1515,6 +1541,12 @@ int datum_protocol_coinbaser_try_reuse(T_DATUM_STRATUM_JOB *s) {
 	if (n >= 2) {
 		DLOG_INFO("Coinbaser: using the pool's split for this tip and value (%d outs, id %u)", n, (unsigned)s->datum_coinbaser_id);
 		return n;
+	}
+	/* The pool has to agree before an old list is scaled onto a new value.
+	 * Exact reuse above is the pool's own answer and does not need that. */
+	if (!datum_protocol_scaled_reuse_ok()) {
+		s->available_coinbase_outputs_count = 0;
+		return 0;
 	}
 	pthread_mutex_lock(&datum_last_good_cb_mutex);
 	if (datum_last_good_matches_pool_locked() && !datum_prev_stretch_ok_locked(s->prevhash_bin)) {
@@ -2161,8 +2193,19 @@ err:
 	}
 	atomic_store(&datum_pool_abw_enabled, pool_abw_enabled);
 	datum_connection_configured = true;
-	atomic_store(&datum_protocol_bulk_enabled, i + 6 <= len &&
-		!memcmp(data + i + 2, "DBF\x01", 4));
+	{
+		bool bulk = false;
+		bool scaled = false;
+		size_t p = (size_t)i + 2;
+		while (p + 4 <= (size_t)len) {
+			if (!memcmp(data + p, "DBF\x01", 4)) bulk = true;
+			else if (!memcmp(data + p, "SRU\x01", 4)) scaled = true;
+			else break;
+			p += 4;
+		}
+		atomic_store(&datum_protocol_bulk_enabled, bulk);
+		atomic_store(&datum_pool_scaled_reuse_ok, scaled);
+	}
 	
 	memset(msg, 0, (datum_config.override_mining_pool_scriptpubkey_len << 1) + 2);
 	for(i = 0; i < datum_config.override_mining_pool_scriptpubkey_len; ++i) {
@@ -2180,6 +2223,8 @@ err:
 	}
 	DLOG_DEBUG("DATUM Pool ABW:              %s",
 		pool_abw_enabled ? "enabled" : "disabled");
+	DLOG_INFO("DATUM Pool scaled reuse:    %s",
+		atomic_load(&datum_pool_scaled_reuse_ok) ? "ok" : "no");
 	
 	const bool became_ready = datum_state != 3;
 	datum_state = 3; // fully ready to make work
@@ -3641,6 +3686,7 @@ void *datum_protocol_client(void *args) {
 	pthread_mutex_unlock(&datum_protocol_sender_stage1_lock);
 	datum_protocol_bulk_reset();
 	atomic_store(&datum_protocol_bulk_enabled, false);
+	atomic_store(&datum_pool_scaled_reuse_ok, false);
 	datum_state = 0;
 	memset(&s_header, 0, sizeof(T_DATUM_PROTOCOL_HEADER));
 	

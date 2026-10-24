@@ -598,6 +598,17 @@ static void datum_protocol_config_v3_tests(void) {
 	datum_state = 3;
 	atomic_store(&datum_protocol_client_active, 3);
 	datum_test(datum_protocol_client_configure((int)i, payload));
+	datum_test(!datum_protocol_scaled_reuse_ok());
+	memcpy(payload + i, "SRU\x01", 4);
+	datum_test(datum_protocol_client_configure((int)i + 4, payload));
+	datum_test(datum_protocol_scaled_reuse_ok());
+	datum_test(datum_protocol_client_configure((int)i, payload));
+	datum_test(!datum_protocol_scaled_reuse_ok());
+	memcpy(payload + i, "DBF\x01SRU\x01", 8);
+	datum_test(datum_protocol_client_configure((int)i + 8, payload));
+	datum_test(datum_protocol_scaled_reuse_ok());
+	datum_test(datum_protocol_client_configure((int)i, payload));
+	datum_test(!datum_protocol_scaled_reuse_ok());
 	datum_test(datum_config.prime_id == UINT64_C(0x887766555d965e4e));
 	datum_test(datum_config.override_mining_pool_scriptpubkey_len == 1);
 	datum_test(datum_config.override_mining_pool_scriptpubkey[0] == 0x51);
@@ -996,6 +1007,7 @@ static void datum_coinbaser_reuse_test_save(T_DATUM_STRATUM_JOB *job, const unsi
 }
 
 static void datum_coinbaser_reuse_pool_and_late_tests(void) {
+	datum_protocol_test_scaled_reuse(true);
 	T_DATUM_STRATUM_JOB job;
 	unsigned char tip_a[32], tip_b[32], got[32];
 	unsigned char resp[12 + 1 + 2 * (8 + 1 + 22)];
@@ -1084,9 +1096,11 @@ static void datum_coinbaser_reuse_pool_and_late_tests(void) {
 
 	datum_protocol_coinbaser_reuse_reset();
 	datum_config.prime_id = saved_prime;
+	datum_protocol_test_scaled_reuse(false);
 }
 
 static void datum_coinbaser_reuse_same_tip_tests(void) {
+	datum_protocol_test_scaled_reuse(true);
 	T_DATUM_STRATUM_JOB job;
 	unsigned char tip_a[32];
 	unsigned char tip_b[32];
@@ -1157,6 +1171,7 @@ static void datum_coinbaser_reuse_same_tip_tests(void) {
 	datum_test(datum_protocol_coinbaser_try_reuse(&job) == 0);
 
 	datum_protocol_coinbaser_reuse_reset();
+	datum_protocol_test_scaled_reuse(false);
 }
 
 static void datum_protocol_migration_tests(void) {
@@ -2001,6 +2016,7 @@ static int datum_prev_test_fetch(T_DATUM_STRATUM_JOB *job, bool answer, uint64_t
 #define DATUM_PREV_TEST_UNREAD (-1)
 
 static void datum_coinbaser_prev_block_fetch_tests(void) {
+	datum_protocol_test_scaled_reuse(true);
 	const global_config_t saved_config = datum_config;
 	const int saved_active = atomic_load(&datum_protocol_client_active);
 	const int saved_out = server_out_buf;
@@ -2221,6 +2237,7 @@ static void datum_coinbaser_prev_block_fetch_tests(void) {
 	sending_header_key = saved_header_key;
 	memcpy(session_nonce_sender, saved_nonce, sizeof(saved_nonce));
 	datum_config = saved_config;
+	datum_protocol_test_scaled_reuse(false);
 }
 
 /* Builds the base coinbase for a job on tip; returns whether it pays the pool. */
@@ -2242,6 +2259,7 @@ static bool datum_prev_test_base_is_datum(const unsigned char *tip) {
 }
 
 static void datum_coinbaser_prev_block_tests(void) {
+	datum_protocol_test_scaled_reuse(true);
 	const global_config_t saved_config = datum_config;
 	const unsigned char split[3] = { 0x30, 0x31, 0x32 };
 	const unsigned char paid_two[2] = { 0x31, 0x30 };
@@ -2436,6 +2454,7 @@ static void datum_coinbaser_prev_block_tests(void) {
 
 	datum_protocol_coinbaser_reuse_reset();
 	datum_config = saved_config;
+	datum_protocol_test_scaled_reuse(false);
 }
 
 void datum_protocol_tests(void) {

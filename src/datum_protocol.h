@@ -149,6 +149,8 @@ void datum_increment_session_nonce(void *s);
 int datum_protocol_fetch_coinbaser(uint64_t value);
 int datum_protocol_coinbaser_fetch(void *s);
 bool datum_protocol_coinbaser_have_saved(void);
+bool datum_protocol_coinbaser_exact_ready(const void *job);
+bool datum_protocol_scaled_reuse_ok(void);
 int datum_protocol_coinbaser_prev_solo(const unsigned char *tip);
 void datum_protocol_coinbaser_prev_check(const unsigned char *tip, unsigned int wait_ms);
 int datum_protocol_coinbaser_take_late(unsigned char *prevhash_out);

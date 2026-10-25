@@ -201,7 +201,7 @@ const T_DATUM_CONFIG_ITEM datum_config_options[] = {
 	{ .var_type = DATUM_CONF_BOOL, 		.category = "datum", 		.name = "coinbaser_reuse",			.description = "Offer scaled reuse in the hello. No ack keeps the pool coinbase. An ack with pooled_mining_only off pays mining.pool_address on a new block until the pool's split, when nothing is saved or the previous block is the pool's. ABW stretches only if the pool also acks that bit. Otherwise a new ABW block pays mining.pool_address when pooled_mining_only is off, else the pool coinbase. A stretch needs the ack, a saved split, and no output of at least 546 sats scaled below 546.",
 		.example_default = false,
 		.required = false, .ptr = &datum_config.datum_coinbaser_reuse, 	.default_bool = false },
-	{ .var_type = DATUM_CONF_BOOL, 		.category = "datum", 		.name = "coinbaser_reuse_abw",		.description = "Offer the ABW stretch bit in the hello, and only when coinbaser_reuse is also on. Default off. The gateway stretches on ABW only when the pool acks this bit and scaled reuse. A 0x08 ack without a 0x04 ack is ignored.",
+	{ .var_type = DATUM_CONF_BOOL, 		.category = "datum", 		.name = "coinbaser_reuse_abw",		.description = "Offer the ABW stretch bit in the hello, and only when coinbaser_reuse is also on. Default off. Startup fails if this is on and coinbaser_reuse is off. The gateway stretches on ABW only when the pool acks this bit and scaled reuse. A 0x08 ack without a 0x04 ack is ignored.",
 		.example_default = false,
 		.required = false, .ptr = &datum_config.datum_coinbaser_reuse_abw, 	.default_bool = false },
 	{ .var_type = DATUM_CONF_INT, 		.category = "datum", 		.name = "protocol_global_timeout",		.description = "If no valid messages are received from the DATUM server in this many seconds, give up and try to reconnect",
@@ -747,6 +747,11 @@ int datum_read_config(const char *conffile) {
 	
 	if (datum_config.datum_pool_host[0] == '\0' && datum_config.datum_pooled_mining_only == true) {
 		DLOG_FATAL("Pooled mining only is set to true, but pool host is not specified.");
+		return 0;
+	}
+
+	if (datum_config.datum_coinbaser_reuse_abw && !datum_config.datum_coinbaser_reuse) {
+		DLOG_FATAL("coinbaser_reuse_abw is set, but coinbaser_reuse is not.");
 		return 0;
 	}
 	

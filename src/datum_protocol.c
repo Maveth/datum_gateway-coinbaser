@@ -1546,10 +1546,8 @@ int datum_protocol_coinbaser_try_reuse(T_DATUM_STRATUM_JOB *s) {
 		return n;
 	}
 	/* Exact reuse above does not need consent. A stretch needs the opt-in
-	 * and the pool's ack, and it is not used under ABW: that header is
-	 * masked, so a rejected share loses the block. */
-	if (!datum_protocol_coinbaser_reuse_active() ||
-	    (s->block_template && s->block_template->abw_enabled)) {
+	 * and the pool's ack. ABW uses the same stretch. */
+	if (!datum_protocol_coinbaser_reuse_active()) {
 		s->available_coinbase_outputs_count = 0;
 		return 0;
 	}

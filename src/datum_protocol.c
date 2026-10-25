@@ -175,6 +175,8 @@ static bool datum_connection_configured = false;
 static atomic_bool datum_pool_abw_enabled = true;
 /* Set when this pool's handshake ack includes DATUM_DRS_SCALED_REUSE_FLAG. */
 static atomic_bool datum_pool_scaled_reuse_ok = false;
+/* Set when this pool's handshake ack includes DATUM_DRS_ABW_SCALED_REUSE_FLAG. */
+static atomic_bool datum_pool_abw_scaled_reuse_ok = false;
 
 extern DATUM_QUEUE pow_queue;
 
@@ -1507,12 +1509,20 @@ bool datum_protocol_scaled_reuse_ok(void) {
 	return atomic_load(&datum_pool_scaled_reuse_ok);
 }
 
+bool datum_protocol_abw_scaled_reuse_ok(void) {
+	return atomic_load(&datum_pool_abw_scaled_reuse_ok);
+}
+
 bool datum_protocol_coinbaser_reuse_active(void) {
 	return datum_config.datum_coinbaser_reuse && datum_protocol_scaled_reuse_ok();
 }
 
 void datum_protocol_test_scaled_reuse(bool ok) {
 	atomic_store(&datum_pool_scaled_reuse_ok, ok);
+}
+
+void datum_protocol_test_abw_scaled_reuse(bool ok) {
+	atomic_store(&datum_pool_abw_scaled_reuse_ok, ok);
 }
 
 /* Exact match: same pool, same session, same tip, same value. The saved
@@ -1546,8 +1556,10 @@ int datum_protocol_coinbaser_try_reuse(T_DATUM_STRATUM_JOB *s) {
 		return n;
 	}
 	/* Exact reuse above does not need consent. A stretch needs the opt-in
-	 * and the pool's ack. ABW uses the same stretch. */
-	if (!datum_protocol_coinbaser_reuse_active()) {
+	 * and the pool's ack. An ABW stretch also needs the pool's ABW ack. */
+	if (!datum_protocol_coinbaser_reuse_active() ||
+	    (s->block_template && s->block_template->abw_enabled &&
+	     !datum_protocol_abw_scaled_reuse_ok())) {
 		s->available_coinbase_outputs_count = 0;
 		return 0;
 	}
@@ -3057,7 +3069,9 @@ int datum_protocol_send_hello(int sockfd) {
 	memcpy(&hello_msg[i], "DRS\x01", 4); i += 4;
 	datum_requested_resume = datum_has_resume_token;
 	uint8_t drs_flags = DATUM_DRS_FRAMING_V2_FLAG | (datum_requested_resume ? DATUM_DRS_RESUME_TOKEN_FLAG : 0);
-	if (datum_config.datum_coinbaser_reuse) drs_flags |= DATUM_DRS_SCALED_REUSE_FLAG;
+	if (datum_config.datum_coinbaser_reuse) {
+		drs_flags |= DATUM_DRS_SCALED_REUSE_FLAG | DATUM_DRS_ABW_SCALED_REUSE_FLAG;
+	}
 	hello_msg[i++] = drs_flags;
 	if (datum_requested_resume) {
 		memcpy(&hello_msg[i], datum_resume_token, DATUM_RESUME_TOKEN_SIZE);
@@ -3213,13 +3227,16 @@ int datum_protocol_handshake_response(T_DATUM_PROTOCOL_HEADER *h, unsigned char 
 	const unsigned char *motd_end = memchr(&data[i], 0, motd_len);
 	bool framing_v2 = false;
 	bool scaled_reuse = false;
+	bool abw_scaled_reuse = false;
 	if (motd_end) {
 		const unsigned char *selection = &motd_end[1];
 		const size_t selection_len = (size_t)(&data[h->cmd_len] - selection);
 		if (selection_len >= 1 && (selection[0] & DATUM_DRS_FRAMING_V2_FLAG)) framing_v2 = true;
-		/* Ignore the bit when this gateway did not offer it. */
+		/* Ignore a bit when this gateway did not offer it. */
 		if (selection_len >= 1 && datum_config.datum_coinbaser_reuse &&
 		    (selection[0] & DATUM_DRS_SCALED_REUSE_FLAG)) scaled_reuse = true;
+		if (selection_len >= 1 && datum_config.datum_coinbaser_reuse &&
+		    (selection[0] & DATUM_DRS_ABW_SCALED_REUSE_FLAG)) abw_scaled_reuse = true;
 	}
 	if (motd_end) motd_len = (size_t)(motd_end - &data[i]);
 	if (motd_len >= sizeof(motd)) motd_len = sizeof(motd) - 1;
@@ -3232,8 +3249,10 @@ int datum_protocol_handshake_response(T_DATUM_PROTOCOL_HEADER *h, unsigned char 
 	sodium_memzero(&precomp, sizeof(precomp));
 	datum_framing_v2 = framing_v2;
 	atomic_store(&datum_pool_scaled_reuse_ok, scaled_reuse);
+	atomic_store(&datum_pool_abw_scaled_reuse_ok, abw_scaled_reuse);
 	if (datum_config.datum_coinbaser_reuse) {
 		DLOG_INFO("DATUM Pool scaled reuse:    %s", scaled_reuse ? "ok" : "no");
+		DLOG_INFO("DATUM Pool ABW scaled reuse: %s", abw_scaled_reuse ? "ok" : "no");
 	}
 	datum_state = 2; //we're handshaked with encryption setup!
 	
@@ -3701,6 +3720,7 @@ void *datum_protocol_client(void *args) {
 	server_in_buf = 0;
 	datum_framing_v2 = false;
 	atomic_store(&datum_pool_scaled_reuse_ok, false);
+	atomic_store(&datum_pool_abw_scaled_reuse_ok, false);
 	pthread_mutex_unlock(&datum_protocol_send_buffer_lock);
 	pthread_mutex_unlock(&datum_protocol_sender_stage1_lock);
 	datum_protocol_bulk_reset();

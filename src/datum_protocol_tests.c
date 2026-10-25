@@ -258,10 +258,28 @@ static void datum_protocol_handshake_bounds_tests(void) {
 	clear[193] = DATUM_DRS_FRAMING_V2_FLAG;
 	datum_test(datum_protocol_test_receive_sealed(clear, 194, &pool_keys) == 1);
 	datum_test(!datum_protocol_scaled_reuse_ok());
+	datum_test(!datum_protocol_abw_scaled_reuse_ok());
 	datum_test(datum_framing_v2);
 	datum_protocol_test_scaled_reuse(false);
 	datum_state = 1;
+	clear[193] = DATUM_DRS_FRAMING_V2_FLAG | DATUM_DRS_SCALED_REUSE_FLAG | DATUM_DRS_ABW_SCALED_REUSE_FLAG;
+	datum_test(datum_protocol_test_receive_sealed(clear, 194, &pool_keys) == 1);
+	datum_test(datum_protocol_scaled_reuse_ok());
+	datum_test(datum_protocol_abw_scaled_reuse_ok());
+	datum_state = 1;
+	datum_config.datum_coinbaser_reuse = false;
+	clear[193] = DATUM_DRS_ABW_SCALED_REUSE_FLAG;
+	datum_test(datum_protocol_test_receive_sealed(clear, 194, &pool_keys) == 1);
+	datum_test(!datum_protocol_abw_scaled_reuse_ok());
+	datum_state = 1;
+	datum_config.datum_coinbaser_reuse = true;
+	clear[193] = DATUM_DRS_SCALED_REUSE_FLAG;
+	datum_test(datum_protocol_test_receive_sealed(clear, 194, &pool_keys) == 1);
+	datum_test(datum_protocol_scaled_reuse_ok());
+	datum_test(!datum_protocol_abw_scaled_reuse_ok());
+	datum_state = 1;
 	datum_framing_v2 = false;
+	clear[193] = DATUM_DRS_FRAMING_V2_FLAG;
 	clear[194] = 0xa5;
 	datum_test(datum_protocol_test_receive_sealed(clear, 195, &pool_keys) == 1);
 	datum_test(datum_state == 2);
@@ -1213,7 +1231,7 @@ static void datum_coinbaser_reuse_same_tip_tests(void) {
 	datum_protocol_coinbaser_reuse_reset();
 	datum_test(datum_protocol_coinbaser_try_reuse(&job) == 0);
 
-	/* No ack refuses a stretch. ABW does not. */
+	/* No ack refuses a stretch. ABW refuses unless the pool acked that bit. */
 	for (i = 0; i < 3; i++) {
 		job.available_coinbase_outputs[i].value_sats = (uint64_t)(1000 + i);
 		job.available_coinbase_outputs[i].output_script_len = 22;
@@ -1231,14 +1249,22 @@ static void datum_coinbaser_reuse_same_tip_tests(void) {
 	datum_protocol_test_scaled_reuse(false);
 	datum_test(datum_protocol_coinbaser_try_reuse(&job) == 0);
 	datum_protocol_test_scaled_reuse(true);
+	datum_protocol_test_abw_scaled_reuse(false);
 	{
 		static T_DATUM_TEMPLATE_DATA abw;
 		memset(&abw, 0, sizeof(abw));
 		abw.abw_enabled = true;
 		job.block_template = &abw;
+		datum_test(datum_protocol_coinbaser_try_reuse(&job) == 0);
+		memset(job.available_coinbase_outputs, 0, sizeof(job.available_coinbase_outputs));
+		job.available_coinbase_outputs_count = 0;
+		datum_protocol_test_abw_scaled_reuse(true);
 		datum_test(datum_protocol_coinbaser_try_reuse(&job) == 3);
+		datum_protocol_test_abw_scaled_reuse(false);
 		job.block_template = NULL;
 	}
+	memset(job.available_coinbase_outputs, 0, sizeof(job.available_coinbase_outputs));
+	job.available_coinbase_outputs_count = 0;
 	datum_test(datum_protocol_coinbaser_try_reuse(&job) == 3);
 
 	/* 1000 scales under 546. A 0-value output does not block the stretch. */
@@ -2534,8 +2560,12 @@ static void datum_coinbaser_prev_block_tests(void) {
 		datum_test(!datum_prev_test_base_is_datum(tip_d, false, false));
 		datum_protocol_coinbaser_prev_record(tip_d, 1);
 		datum_test(datum_prev_test_base_is_datum(tip_d, false, false));
-		datum_test(datum_prev_test_base_is_datum(tip_d, true, true));
+		/* No ABW ack: a new ABW block solos. A later value on that tip stays pooled. */
+		datum_test(!datum_prev_test_base_is_datum(tip_d, true, true));
 		datum_test(datum_prev_test_base_is_datum(tip_d, true, false));
+		datum_protocol_test_abw_scaled_reuse(true);
+		datum_test(datum_prev_test_base_is_datum(tip_d, true, true));
+		datum_protocol_test_abw_scaled_reuse(false);
 		datum_protocol_test_scaled_reuse(false);
 		datum_test(datum_prev_test_base_is_datum(tip_d, false, true));
 		datum_test(datum_prev_test_base_is_datum(tip_d, false, false));

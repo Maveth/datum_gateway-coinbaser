@@ -67,6 +67,9 @@
 /* Offered when coinbaser_reuse is on. The pool acks it.
  * Old pools ignore the bit. A stretch needs the flag and the ack. */
 #define DATUM_DRS_SCALED_REUSE_FLAG 0x04
+/* Offered with scaled reuse. The pool acks it when it will submit an ABW
+ * stretch. Without that ack an ABW template is not stretched. */
+#define DATUM_DRS_ABW_SCALED_REUSE_FLAG 0x08
 
 // Protocol command 6 carries sequential DBF1 fragments. Only one small
 // fragment is admitted after the primary send queue drains.
@@ -154,6 +157,8 @@ int datum_protocol_coinbaser_fetch(void *s);
 bool datum_protocol_coinbaser_have_saved(void);
 bool datum_protocol_coinbaser_exact_ready(const void *job);
 bool datum_protocol_scaled_reuse_ok(void);
+/* Pool acked DATUM_DRS_ABW_SCALED_REUSE_FLAG. ABW stretch checks this. */
+bool datum_protocol_abw_scaled_reuse_ok(void);
 /* coinbaser_reuse on and the pool acked. Every reuse path checks this; with no ack the gateway behaves as reuse off. */
 bool datum_protocol_coinbaser_reuse_active(void);
 int datum_protocol_coinbaser_prev_solo(const unsigned char *tip);

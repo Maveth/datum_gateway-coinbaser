@@ -1451,6 +1451,10 @@ unsigned int datum_stratum_coinbase_index(
 		if (job && job->provisional_split && miner && miner->coinbase_selection < MAX_COINBASE_TYPES) {
 			return miner->coinbase_selection;
 		}
+		/* Solo is one output at the template value. The empty id is subsidy only. */
+		if (job && !job->is_datum_job && job->pool_addr_script_len > 0) {
+			return 0;
+		}
 		return DATUM_COINBASE_ID_EMPTY;
 	}
 	if (job && job->provisional_split && miner && miner->coinbase_selection < MAX_COINBASE_TYPES) {

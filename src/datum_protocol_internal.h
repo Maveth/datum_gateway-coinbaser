@@ -100,6 +100,7 @@ int datum_protocol_abw_assignment_notice(int len, unsigned char *data);
 int datum_protocol_abw_reveal(int len, unsigned char *data);
 
 int datum_protocol_coinbaser_try_reuse(T_DATUM_STRATUM_JOB *s);
+void datum_protocol_test_scaled_reuse(bool ok);
 void datum_protocol_coinbaser_save_good(T_DATUM_STRATUM_JOB *s, int n);
 void datum_protocol_coinbaser_reuse_reset(void);
 int datum_protocol_coinbaser_prev_block_matches(const char *hex, size_t hex_len, const T_DATUM_TXN_OUTPUT *outs, int n, unsigned char *parent, const unsigned char *pool_script, int pool_len, bool *paid_pool);

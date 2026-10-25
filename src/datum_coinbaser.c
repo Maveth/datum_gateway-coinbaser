@@ -426,13 +426,27 @@ void generate_base_coinbase_txns_for_stratum_job(T_DATUM_STRATUM_JOB *s, bool ne
 		datum_config.mining_pool_address[0];
 	const bool no_split = solo_allowed && !datum_protocol_coinbaser_have_saved();
 	const int prev_solo = (solo_allowed && !no_split) ? datum_protocol_coinbaser_prev_solo(s->prevhash_bin) : 0;
-	const bool solo_until_first_split = no_split || prev_solo;
+	/* No hello ack: Fly's wait. Solo until this tip's own split, no scaled list.
+	 * ABW: same solo, even when the pool acked, because a stretch is masked. */
+	const bool scale_solo = solo_allowed && !no_split && !prev_solo &&
+		!datum_protocol_scaled_reuse_ok() &&
+		!datum_protocol_coinbaser_exact_ready(s);
+	const bool abw_solo = datum_protocol_is_active() &&
+		datum_config.datum_coinbaser_reuse &&
+		datum_config.mining_pool_address[0] &&
+		s->block_template && s->block_template->abw_enabled &&
+		!datum_protocol_coinbaser_exact_ready(s);
+	const bool solo_until_first_split = no_split || prev_solo || scale_solo || abw_solo;
 	if (no_split) {
 		DLOG_INFO("Coinbaser: no split from this pool yet; this job pays mining.pool_address until one arrives");
 	} else if (prev_solo == 1) {
 		DLOG_INFO("Coinbaser: the pool found the previous block; this job pays mining.pool_address until the pool answers");
 	} else if (prev_solo) {
 		DLOG_INFO("Coinbaser: previous block not verified; this job pays mining.pool_address until it is or the pool answers");
+	} else if (abw_solo) {
+		DLOG_INFO("Coinbaser: ABW template; paying mining.pool_address until the pool's own split");
+	} else if (scale_solo) {
+		DLOG_INFO("Coinbaser: pool has not agreed to a scaled split; this job pays mining.pool_address until the pool's own split");
 	}
 	if (datum_protocol_is_active() && !solo_until_first_split) {
 		// DATUM

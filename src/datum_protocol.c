@@ -173,6 +173,8 @@ static bool datum_requested_resume = false;
 atomic_bool datum_framing_v2 = false;
 static bool datum_connection_configured = false;
 static atomic_bool datum_pool_abw_enabled = true;
+/* Set when this pool's handshake ack includes DATUM_DRS_SCALED_REUSE_FLAG. */
+static atomic_bool datum_pool_scaled_reuse_ok = false;
 
 extern DATUM_QUEUE pow_queue;
 
@@ -1483,15 +1485,39 @@ bool datum_protocol_coinbaser_have_saved(void) {
 	return r;
 }
 
+static bool datum_coinbaser_exact_locked(const T_DATUM_STRATUM_JOB *s) {
+	return s && s->coinbase_value &&
+		datum_last_good_matches_pool_locked() &&
+		datum_last_good_session == atomic_load(&datum_session_generation) &&
+		datum_last_good_cb_count >= 2 &&
+		datum_last_good_cb_value == s->coinbase_value &&
+		memcmp(datum_last_good_prevhash, s->prevhash_bin, 32) == 0;
+}
+
+bool datum_protocol_coinbaser_exact_ready(const void *job) {
+	const T_DATUM_STRATUM_JOB *s = job;
+	bool ready;
+	if (!s) return false;
+	pthread_mutex_lock(&datum_last_good_cb_mutex);
+	ready = datum_coinbaser_exact_locked(s);
+	pthread_mutex_unlock(&datum_last_good_cb_mutex);
+	return ready;
+}
+
+bool datum_protocol_scaled_reuse_ok(void) {
+	return atomic_load(&datum_pool_scaled_reuse_ok);
+}
+
+void datum_protocol_test_scaled_reuse(bool ok) {
+	atomic_store(&datum_pool_scaled_reuse_ok, ok);
+}
+
 /* Exact match: same pool, same session, same tip, same value. The saved
  * split is the pool's own answer for this job, coinbaser id included. */
 static int datum_protocol_coinbaser_try_exact(T_DATUM_STRATUM_JOB *s) {
 	int n = 0;
 	pthread_mutex_lock(&datum_last_good_cb_mutex);
-	if (datum_last_good_matches_pool_locked() &&
-	    datum_last_good_session == atomic_load(&datum_session_generation) &&
-	    datum_last_good_cb_value == s->coinbase_value &&
-	    memcmp(datum_last_good_prevhash, s->prevhash_bin, 32) == 0) {
+	if (datum_coinbaser_exact_locked(s)) {
 		memcpy(s->available_coinbase_outputs, datum_last_good_cb_outs,
 		       sizeof(T_DATUM_TXN_OUTPUT) * (size_t)datum_last_good_cb_count);
 		s->available_coinbase_outputs_count = datum_last_good_cb_count;
@@ -1515,6 +1541,14 @@ int datum_protocol_coinbaser_try_reuse(T_DATUM_STRATUM_JOB *s) {
 	if (n >= 2) {
 		DLOG_INFO("Coinbaser: using the pool's split for this tip and value (%d outs, id %u)", n, (unsigned)s->datum_coinbaser_id);
 		return n;
+	}
+	/* Exact reuse above does not need consent. A stretch does, and it is
+	 * not used under ABW: that header is masked, so a rejected share loses
+	 * the block. */
+	if (!datum_protocol_scaled_reuse_ok() ||
+	    (s->block_template && s->block_template->abw_enabled)) {
+		s->available_coinbase_outputs_count = 0;
+		return 0;
 	}
 	pthread_mutex_lock(&datum_last_good_cb_mutex);
 	if (datum_last_good_matches_pool_locked() && !datum_prev_stretch_ok_locked(s->prevhash_bin)) {
@@ -3005,7 +3039,8 @@ int datum_protocol_send_hello(int sockfd) {
 	
 	memcpy(&hello_msg[i], "DRS\x01", 4); i += 4;
 	datum_requested_resume = datum_has_resume_token;
-	const uint8_t drs_flags = DATUM_DRS_FRAMING_V2_FLAG | (datum_requested_resume ? DATUM_DRS_RESUME_TOKEN_FLAG : 0);
+	uint8_t drs_flags = DATUM_DRS_FRAMING_V2_FLAG | (datum_requested_resume ? DATUM_DRS_RESUME_TOKEN_FLAG : 0);
+	if (datum_config.datum_coinbaser_reuse) drs_flags |= DATUM_DRS_SCALED_REUSE_FLAG;
 	hello_msg[i++] = drs_flags;
 	if (datum_requested_resume) {
 		memcpy(&hello_msg[i], datum_resume_token, DATUM_RESUME_TOKEN_SIZE);
@@ -3160,10 +3195,13 @@ int datum_protocol_handshake_response(T_DATUM_PROTOCOL_HEADER *h, unsigned char 
 	size_t motd_len = h->cmd_len - (size_t)i;
 	const unsigned char *motd_end = memchr(&data[i], 0, motd_len);
 	bool framing_v2 = false;
+	bool scaled_reuse = false;
 	if (motd_end) {
 		const unsigned char *selection = &motd_end[1];
 		const size_t selection_len = (size_t)(&data[h->cmd_len] - selection);
 		if (selection_len >= 1 && (selection[0] & DATUM_DRS_FRAMING_V2_FLAG)) framing_v2 = true;
+		if (selection_len >= 1 && datum_config.datum_coinbaser_reuse &&
+		    (selection[0] & DATUM_DRS_SCALED_REUSE_FLAG)) scaled_reuse = true;
 	}
 	if (motd_end) motd_len = (size_t)(motd_end - &data[i]);
 	if (motd_len >= sizeof(motd)) motd_len = sizeof(motd) - 1;
@@ -3175,6 +3213,10 @@ int datum_protocol_handshake_response(T_DATUM_PROTOCOL_HEADER *h, unsigned char 
 	session_precomp.remote = &session_remote_datum_keys;
 	sodium_memzero(&precomp, sizeof(precomp));
 	datum_framing_v2 = framing_v2;
+	atomic_store(&datum_pool_scaled_reuse_ok, scaled_reuse);
+	if (datum_config.datum_coinbaser_reuse) {
+		DLOG_INFO("DATUM Pool scaled reuse:    %s", scaled_reuse ? "ok" : "no");
+	}
 	datum_state = 2; //we're handshaked with encryption setup!
 	
 	DLOG_DEBUG("Handshake response received.");
@@ -3640,6 +3682,7 @@ void *datum_protocol_client(void *args) {
 	server_out_buf = 0;
 	server_in_buf = 0;
 	datum_framing_v2 = false;
+	atomic_store(&datum_pool_scaled_reuse_ok, false);
 	pthread_mutex_unlock(&datum_protocol_send_buffer_lock);
 	pthread_mutex_unlock(&datum_protocol_sender_stage1_lock);
 	datum_protocol_bulk_reset();

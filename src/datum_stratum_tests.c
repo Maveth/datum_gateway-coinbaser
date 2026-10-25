@@ -243,6 +243,9 @@ static void datum_blake2b_coinbase_selection_tests(void) {
 	miner.coinbase_selection = 4;
 	datum_test(datum_stratum_coinbase_index(sdata, &miner, true) == DATUM_COINBASE_ID_EMPTY);
 	datum_test(datum_stratum_coinbase_index(sdata, &miner, false) == 0);
+	job.is_datum_job = false;
+	job.pool_addr_script_len = 22;
+	datum_test(datum_stratum_coinbase_index(sdata, &miner, true) == 0);
 	free(sdata);
 }
 

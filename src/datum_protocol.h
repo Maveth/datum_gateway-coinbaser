@@ -64,6 +64,9 @@
 // an incompatible trailer layout requires a new DRS version.
 #define DATUM_DRS_RESUME_TOKEN_FLAG 0x01
 #define DATUM_DRS_FRAMING_V2_FLAG 0x02
+/* Gateway offers this when coinbaser_reuse is on. The pool acks it.
+ * Old pools ignore the bit. No ack means do not scale an old split. */
+#define DATUM_DRS_SCALED_REUSE_FLAG 0x04
 
 // Protocol command 6 carries sequential DBF1 fragments. Only one small
 // fragment is admitted after the primary send queue drains.
@@ -149,6 +152,8 @@ void datum_increment_session_nonce(void *s);
 int datum_protocol_fetch_coinbaser(uint64_t value);
 int datum_protocol_coinbaser_fetch(void *s);
 bool datum_protocol_coinbaser_have_saved(void);
+bool datum_protocol_coinbaser_exact_ready(const void *job);
+bool datum_protocol_scaled_reuse_ok(void);
 int datum_protocol_coinbaser_prev_solo(const unsigned char *tip);
 void datum_protocol_coinbaser_prev_check(const unsigned char *tip, unsigned int wait_ms);
 int datum_protocol_coinbaser_take_late(unsigned char *prevhash_out);

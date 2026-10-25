@@ -171,6 +171,7 @@ typedef struct {
 	bool datum_pool_pass_full_users;
 	bool datum_pooled_mining_only;
 	bool datum_coinbaser_reuse;
+	bool datum_coinbaser_reuse_abw;
 	char datum_pool_pubkey[1024];
 	int datum_protocol_global_timeout;
 	uint64_t datum_protocol_global_timeout_ms;

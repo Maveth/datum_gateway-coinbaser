@@ -3070,7 +3070,10 @@ int datum_protocol_send_hello(int sockfd) {
 	datum_requested_resume = datum_has_resume_token;
 	uint8_t drs_flags = DATUM_DRS_FRAMING_V2_FLAG | (datum_requested_resume ? DATUM_DRS_RESUME_TOKEN_FLAG : 0);
 	if (datum_config.datum_coinbaser_reuse) {
-		drs_flags |= DATUM_DRS_SCALED_REUSE_FLAG | DATUM_DRS_ABW_SCALED_REUSE_FLAG;
+		drs_flags |= DATUM_DRS_SCALED_REUSE_FLAG;
+	}
+	if (datum_config.datum_coinbaser_reuse_abw) {
+		drs_flags |= DATUM_DRS_ABW_SCALED_REUSE_FLAG;
 	}
 	hello_msg[i++] = drs_flags;
 	if (datum_requested_resume) {
@@ -3235,7 +3238,9 @@ int datum_protocol_handshake_response(T_DATUM_PROTOCOL_HEADER *h, unsigned char 
 		/* Ignore a bit when this gateway did not offer it. */
 		if (selection_len >= 1 && datum_config.datum_coinbaser_reuse &&
 		    (selection[0] & DATUM_DRS_SCALED_REUSE_FLAG)) scaled_reuse = true;
-		if (selection_len >= 1 && datum_config.datum_coinbaser_reuse &&
+		/* 0x08 counts only from its own setting, and only with a 0x04 ack. */
+		if (selection_len >= 1 && datum_config.datum_coinbaser_reuse_abw &&
+		    scaled_reuse &&
 		    (selection[0] & DATUM_DRS_ABW_SCALED_REUSE_FLAG)) abw_scaled_reuse = true;
 	}
 	if (motd_end) motd_len = (size_t)(motd_end - &data[i]);

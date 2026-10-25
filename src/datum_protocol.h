@@ -67,8 +67,8 @@
 /* Offered when coinbaser_reuse is on. The pool acks it.
  * Old pools ignore the bit. A stretch needs the flag and the ack. */
 #define DATUM_DRS_SCALED_REUSE_FLAG 0x04
-/* Offered only when coinbaser_reuse_abw is on. The pool acks it when it
- * will submit an ABW stretch. A 0x08 ack is ignored unless 0x04 is acked too. */
+/* Offered only when coinbaser_reuse and coinbaser_reuse_abw are both on.
+ * A 0x08 ack is ignored unless 0x04 is acked too. */
 #define DATUM_DRS_ABW_SCALED_REUSE_FLAG 0x08
 
 // Protocol command 6 carries sequential DBF1 fragments. Only one small

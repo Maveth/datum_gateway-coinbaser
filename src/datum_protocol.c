@@ -3072,7 +3072,7 @@ int datum_protocol_send_hello(int sockfd) {
 	if (datum_config.datum_coinbaser_reuse) {
 		drs_flags |= DATUM_DRS_SCALED_REUSE_FLAG;
 	}
-	if (datum_config.datum_coinbaser_reuse_abw) {
+	if (datum_config.datum_coinbaser_reuse && datum_config.datum_coinbaser_reuse_abw) {
 		drs_flags |= DATUM_DRS_ABW_SCALED_REUSE_FLAG;
 	}
 	hello_msg[i++] = drs_flags;
@@ -3257,6 +3257,8 @@ int datum_protocol_handshake_response(T_DATUM_PROTOCOL_HEADER *h, unsigned char 
 	atomic_store(&datum_pool_abw_scaled_reuse_ok, abw_scaled_reuse);
 	if (datum_config.datum_coinbaser_reuse) {
 		DLOG_INFO("DATUM Pool scaled reuse:    %s", scaled_reuse ? "ok" : "no");
+	}
+	if (datum_config.datum_coinbaser_reuse_abw) {
 		DLOG_INFO("DATUM Pool ABW scaled reuse: %s", abw_scaled_reuse ? "ok" : "no");
 	}
 	datum_state = 2; //we're handshaked with encryption setup!

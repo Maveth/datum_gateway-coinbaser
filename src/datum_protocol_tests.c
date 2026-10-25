@@ -1275,6 +1275,9 @@ static void datum_coinbaser_reuse_same_tip_tests(void) {
 		job.available_coinbase_outputs_count = 0;
 		datum_protocol_test_abw_scaled_reuse(true);
 		datum_test(datum_protocol_coinbaser_try_reuse(&job) == 3);
+		sum = 0;
+		for (i = 0; i < 3; i++) sum += job.available_coinbase_outputs[i].value_sats;
+		datum_test(sum == 6006);
 		datum_protocol_test_abw_scaled_reuse(false);
 		job.block_template = NULL;
 	}
